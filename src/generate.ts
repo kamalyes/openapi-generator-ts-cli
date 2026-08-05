@@ -10,7 +10,7 @@ import { staticFiles } from './writers/static-files.js';
 export async function generate(options: GeneratorOptions): Promise<void> {
   // 生成流程只围绕 OpenAPI/Swagger 文档展开：读取文档 -> 构建中间上下文 -> 写入 TS 文件
   const docs = await loadOpenApiDocuments(options);
-  const context = buildContext(docs);
+  const context = buildContext(docs, options);
   const modelFiles = generateModelFiles(context);
   const apiFiles = generateApiFiles(context);
   const files: GeneratedFile[] = [

@@ -1,5 +1,6 @@
 import type {
   BuildContext,
+  GeneratorOptions,
   HttpMethod,
   LoadedDocument,
   ModelDefinition,
@@ -20,7 +21,7 @@ const HTTP_METHODS = new Set<HttpMethod>([
   'options',
 ]);
 
-export function buildContext(docs: LoadedDocument[]): BuildContext {
+export function buildContext(docs: LoadedDocument[], options?: Pick<GeneratorOptions, 'methodStyle' | 'stripOperationPrefix'>): BuildContext {
   const warnings: string[] = [];
   const models: ModelDefinition[] = [];
   const modelBySchema = new Map<string, ModelDefinition>();
@@ -59,7 +60,14 @@ export function buildContext(docs: LoadedDocument[]): BuildContext {
     }
   }
 
-  return { models, operations, modelBySchema, warnings };
+  return {
+    models,
+    operations,
+    modelBySchema,
+    warnings,
+    methodStyle: options?.methodStyle ?? 'positional',
+    stripOperationPrefix: options?.stripOperationPrefix ?? false,
+  };
 }
 
 function collectSchemas(document: OpenApiDocument): Record<string, SchemaObject> {

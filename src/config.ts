@@ -20,6 +20,8 @@ export function parseOptions(argv: string[], cwd = process.cwd()): GeneratorOpti
     .option('--bearer-token <token>', 'Bearer token for remote OpenAPI URLs')
     .option('--docs', 'generate Markdown docs', false)
     .option('--clean', 'remove generated output folders before writing', false)
+    .option('--method-style <style>', 'method parameters: positional or object', 'positional')
+    .option('--strip-operation-prefix', 'strip the shared service prefix from operationIds', false)
     .action((raw) => {
       const inputs = Array.isArray(raw.input) ? raw.input : raw.input ? [raw.input] : [];
       const headers = parseHeaders(raw.header);
@@ -34,6 +36,8 @@ export function parseOptions(argv: string[], cwd = process.cwd()): GeneratorOpti
         clean: Boolean(raw.clean),
         headers,
         cwd,
+        methodStyle: raw.methodStyle === 'object' ? 'object' : 'positional',
+        stripOperationPrefix: Boolean(raw.stripOperationPrefix),
       };
 
       validateOptions(options);

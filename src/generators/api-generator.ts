@@ -45,9 +45,10 @@ function generateApiFile(
   const fromDir = path.posix.dirname(fileNoExt);
   const imports = collectApiImports(fileNoExt, operations, context);
   const className = apiClassName(operations);
+  const operationPrefix = context.stripOperationPrefix ? commonOperationPrefix(operations) : '';
   const methods = operations
     .sort((a, b) => `${a.path}:${a.method}`.localeCompare(`${b.path}:${b.method}`))
-    .map((operation) => renderOperation(operation, context))
+    .map((operation) => renderOperation(operation, context, operationPrefix))
     .join('\n\n');
 
   const baseImport = posixRelativeImport(fromDir, 'base');
@@ -110,28 +111,44 @@ function collectApiImports(
     .join('\n');
 }
 
-function renderOperation(operationDef: OperationDefinition, context: BuildContext): string {
+function renderOperation(
+  operationDef: OperationDefinition,
+  context: BuildContext,
+  operationPrefix: string,
+): string {
   const operation = operationDef.operation;
-  const methodName = stableOperationName(operationDef.method, operationDef.path, operation.operationId);
+  const operationId = stripPrefix(operation.operationId, operationPrefix);
+  const methodName = stableOperationName(operationDef.method, operationDef.path, operationId);
   const params = operation.parameters ?? [];
   const body = bodyParameter(params, operation.requestBody, context);
   const pathParams = params.filter((param) => param.in === 'path');
   const queryParams = params.filter((param) => param.in === 'query');
   const headerParams = params.filter((param) => param.in === 'header');
-  const methodParams = [
+  const fields = [
     ...pathParams.map((param) => renderMethodParam(param, context)),
     ...queryParams.map((param) => renderMethodParam(param, context)),
     ...headerParams.map((param) => renderMethodParam(param, context)),
     ...(body ? [body] : []),
   ].sort((a, b) => Number(isOptionalParam(a)) - Number(isOptionalParam(b)));
-  methodParams.push('options: RequestArgs = {}');
+  const objectStyle = context.methodStyle === 'object';
+  const access = (name: string): string =>
+    objectStyle ? `params.${paramVar(name)}` : paramVar(name);
+  const methodParams = objectStyle
+    ? fields.length
+      ? [`params: { ${fields.join('; ')} }`, 'options: RequestArgs = {}']
+      : ['options: RequestArgs = {}']
+    : [...fields, 'options: RequestArgs = {}'];
   const returnType = schemaToType(successResponseSchema(operation.responses), context);
-  const urlExpr = renderUrl(operationDef.path, pathParams);
-  const queryExpr = renderObjectLiteral(queryParams);
-  const headerExpr = renderObjectLiteral(headerParams);
-  const bodyVariable = body?.match(/^[A-Za-z_$][A-Za-z0-9_$]*/)?.[0];
+  const urlExpr = renderUrl(operationDef.path, pathParams, access);
+  const queryExpr = renderObjectLiteral(queryParams, access);
+  const headerExpr = renderObjectLiteral(headerParams, access);
+  const bodyVariable = objectStyle
+    ? body
+      ? 'params.body'
+      : undefined
+    : body?.match(/^[A-Za-z_$][A-Za-z0-9_$]*/)?.[0];
   const dataLine = bodyVariable ? `      data: ${bodyVariable},` : '';
-  const doc = renderOperationDoc(operationDef, params, bodyVariable);
+  const doc = renderOperationDoc(operationDef, params, bodyVariable, objectStyle);
 
   return `${doc ? `${doc}\n` : ''}  async ${methodName}(${methodParams.join(', ')}): Promise<${returnType}> {
     const response = await this.request<${returnType}>({
@@ -146,10 +163,33 @@ ${dataLine}
   }`;
 }
 
+/** 同一 API 类里所有 operationId 的公共服务前缀；不是 Service/Controller/Api 结尾时不猜 */
+function commonOperationPrefix(operations: OperationDefinition[]): string {
+  const ids = operations
+    .map((operation) => operation.operation.operationId)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return '';
+  let prefix = ids[0];
+  for (const id of ids.slice(1)) {
+    while (prefix && !id.startsWith(prefix)) prefix = prefix.slice(0, -1);
+    if (!prefix) return '';
+  }
+  // 常见 operationId 是 Service_Method 或 ServiceMethod；取到 Service/Controller/Api 的边界，
+  // 这样同一类里都有 Ops/Org 前缀时也能只去掉服务名
+  const match = prefix.match(/^(.*?(?:Service|Controller|Api)[._-]?)/);
+  return match ? match[1] : '';
+}
+
+function stripPrefix(id: string | undefined, prefix: string): string | undefined {
+  if (!id || !prefix || !id.startsWith(prefix) || id.length === prefix.length) return id;
+  return id.slice(prefix.length);
+}
+
 function renderOperationDoc(
   operationDef: OperationDefinition,
   parameters: ParameterObject[],
   bodyVariable: string | undefined,
+  objectStyle: boolean,
 ): string {
   const operation = operationDef.operation;
   const lines: string[] = [];
@@ -160,7 +200,8 @@ function renderOperationDoc(
 
   for (const parameter of parameters.filter((param) => param.in !== 'body')) {
     const descriptionText = commentText(parameter);
-    lines.push(`@param ${paramVar(parameter.name)}${descriptionText ? ` ${descriptionText}` : ''}`);
+    const name = objectStyle ? `params.${paramVar(parameter.name)}` : paramVar(parameter.name);
+    lines.push(`@param ${name}${descriptionText ? ` ${descriptionText}` : ''}`);
   }
 
   const bodyParameter = parameters.find((parameter) => parameter.in === 'body');
@@ -192,10 +233,14 @@ function bodyParameter(
   return `body${requestBody?.required ? '' : '?'}: ${schemaToType(schema, context)}`;
 }
 
-function renderUrl(urlPath: string, pathParams: ParameterObject[]): string {
+function renderUrl(
+  urlPath: string,
+  pathParams: ParameterObject[],
+  access: (name: string) => string,
+): string {
   let template = urlPath;
   for (const param of pathParams) {
-    const variable = paramVar(param.name);
+    const variable = access(param.name);
     template = template.replace(
       new RegExp(`\\{${escapeRegExp(param.name)}\\}`, 'g'),
       `\${encodeURIComponent(String(${variable}))}`,
@@ -204,8 +249,11 @@ function renderUrl(urlPath: string, pathParams: ParameterObject[]): string {
   return `\`${template}\``;
 }
 
-function renderObjectLiteral(parameters: ParameterObject[]): string {
-  const entries = parameters.map((param) => `${JSON.stringify(param.name)}: ${paramVar(param.name)}`);
+function renderObjectLiteral(
+  parameters: ParameterObject[],
+  access: (name: string) => string,
+): string {
+  const entries = parameters.map((param) => `${JSON.stringify(param.name)}: ${access(param.name)}`);
   return `{ ${entries.join(', ')} }`;
 }
 

@@ -15,6 +15,10 @@ export interface GeneratorOptions {
   clean: boolean;
   headers: Record<string, string>;
   cwd: string;
+  /** 参数风格：positional 保持旧签名，object 把 path/query/header/body 收进一个对象 */
+  methodStyle: 'positional' | 'object';
+  /** 去掉同一 API 类里 operationId 的公共服务前缀，例如 AccessControlServiceGetMe -> getMe */
+  stripOperationPrefix: boolean;
 }
 
 export interface LoadedDocument {
@@ -119,4 +123,6 @@ export interface BuildContext {
   operations: OperationDefinition[];
   modelBySchema: Map<string, ModelDefinition>;
   warnings: string[];
+  methodStyle: 'positional' | 'object';
+  stripOperationPrefix: boolean;
 }

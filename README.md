@@ -113,6 +113,21 @@ node dist/cli.js generate \
   --clean
 ```
 
+生成更舒服的客户端签名（参数对象 + 去掉 operationId 的公共服务前缀）：
+
+```bash
+node dist/cli.js generate \
+  --input "../openapi/service.swagger.yaml" \
+  --output "./generate" \
+  --method-style object \
+  --strip-operation-prefix \
+  --clean
+```
+
+- `--method-style object`：把 path / query / header / body 收进一个 `params` 对象，避免 `get(id, page, size, undefined, keyword)` 这种位置参数。
+- `--strip-operation-prefix`：同一 API 类里所有 operationId 的公共 `Service` / `Controller` / `Api` 前缀自动去掉，例如 `ConfigCenterService_PublicConfigGet` 生成 `publicConfigGet`。
+- 默认仍是 `positional`，保持旧调用方兼容。
+
 读取单个本地文件：
 
 ```bash
