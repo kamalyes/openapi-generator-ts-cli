@@ -243,7 +243,9 @@ function renderUrl(
     const variable = access(param.name);
     template = template.replace(
       new RegExp(`\\{${escapeRegExp(param.name)}\\}`, 'g'),
-      `\${encodeURIComponent(String(${variable}))}`,
+      // 路径参数可以带层级（如 platform/channels）：逐段编码，保留斜杠；普通 ID 结果不变
+      // [EN] Path params may be hierarchical (platform/channels): encode each segment and keep slashes
+      `\${String(${variable}).split('/').map(encodeURIComponent).join('/')}`,
     );
   }
   return `\`${template}\``;
