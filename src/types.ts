@@ -63,6 +63,7 @@ export interface ParameterObject {
   format?: string;
   schema?: SchemaObject;
   items?: SchemaObject;
+  enum?: Array<string | number | boolean | null>;
 }
 
 export interface RequestBodyObject {

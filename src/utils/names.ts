@@ -58,7 +58,12 @@ export function toPascalCase(input: string): string {
   const value = cleaned
     .split(/\s+/)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => {
+      if (part === part.toUpperCase() && part.length > 1) {
+        return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
     .join('');
 
   if (!value) return 'GeneratedType';

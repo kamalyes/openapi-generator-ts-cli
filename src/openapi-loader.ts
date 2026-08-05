@@ -36,14 +36,28 @@ async function collectSources(options: GeneratorOptions): Promise<string[]> {
 
 async function readSource(source: string, options: GeneratorOptions): Promise<string> {
   if (/^https?:\/\//i.test(source)) {
-    const response = await fetch(source, { headers: options.headers });
+    let response: Response;
+    try {
+      response = await fetch(source, { headers: options.headers });
+    } catch (err) {
+      const cause = err instanceof Error ? err.cause : undefined;
+      const code = cause instanceof Error ? cause.message : String(cause ?? err);
+      throw new Error(
+        `无法获取 OpenAPI 文档: ${source}\n  原因: ${code}\n  请检查:\n    1. 服务是否已启动\n    2. URL 是否正确\n    3. 网络是否可达`,
+      );
+    }
     if (!response.ok) {
-      throw new Error(`Failed to fetch ${source}: ${response.status} ${response.statusText}`);
+      throw new Error(`获取 OpenAPI 文档失败: ${source}\n  HTTP ${response.status} ${response.statusText}`);
     }
     return response.text();
   }
 
-  return fs.readFile(path.resolve(options.cwd, source), 'utf8');
+  try {
+    return await fs.readFile(path.resolve(options.cwd, source), 'utf8');
+  } catch (err) {
+    const code = err instanceof Error ? err.message : String(err);
+    throw new Error(`无法读取文件: ${source}\n  原因: ${code}\n  请检查路径是否正确`);
+  }
 }
 
 function describeSource(source: string, cwd: string): Omit<LoadedDocument, 'document'> {

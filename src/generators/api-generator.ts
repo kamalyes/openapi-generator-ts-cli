@@ -2,6 +2,7 @@ import path from 'node:path';
 import type {
   BuildContext,
   HttpMethod,
+  ModelDefinition,
   OperationDefinition,
   ParameterObject,
   RequestBodyObject,
@@ -70,15 +71,29 @@ function collectApiImports(
 ): string {
   const importsByPath = new Map<string, Set<string>>();
   const fromDir = path.posix.dirname(fileNoExt);
+  const addImport = (model: ModelDefinition): void => {
+    const importPath = posixRelativeImport(fromDir, modelFilePath(model.target));
+    const names = importsByPath.get(importPath) ?? new Set<string>();
+    names.add(model.typeName);
+    importsByPath.set(importPath, names);
+  };
   const collect = (schema: SchemaObject | undefined): void => {
     for (const schemaRef of refsInSchema(schema)) {
       const model = context.modelBySchema.get(schemaRef);
-      if (!model) continue;
-      const importPath = posixRelativeImport(fromDir, modelFilePath(model.target));
-      const names = importsByPath.get(importPath) ?? new Set<string>();
-      names.add(model.typeName);
-      importsByPath.set(importPath, names);
+      if (model) addImport(model);
     }
+    const visitInlineEnum = (node: SchemaObject | undefined): void => {
+      if (!node) return;
+      if (node.enum?.length) {
+        const enumModel = findEnumModel(node, context);
+        if (enumModel) addImport(enumModel);
+      }
+      visitInlineEnum(node.items);
+      if (typeof node.additionalProperties === 'object') visitInlineEnum(node.additionalProperties);
+      for (const child of Object.values(node.properties ?? {})) visitInlineEnum(child);
+      for (const child of [...(node.allOf ?? []), ...(node.oneOf ?? []), ...(node.anyOf ?? [])]) visitInlineEnum(child);
+    };
+    visitInlineEnum(schema);
   };
 
   for (const operation of operations) {
@@ -216,6 +231,7 @@ function parameterToSchema(parameter: ParameterObject): SchemaObject {
     type: parameter.type,
     format: parameter.format,
     items: parameter.items,
+    enum: parameter.enum,
   };
 }
 
@@ -226,11 +242,30 @@ function successResponseSchema(responses: Record<string, { schema?: SchemaObject
   return response?.schema ?? response?.content?.['application/json']?.schema ?? Object.values(response?.content ?? {})[0]?.schema;
 }
 
+function normalizeEnumValues(values: Array<string | number | boolean | null> | undefined): string {
+  return [...(values ?? [])].map((v) => String(v)).sort().join('|');
+}
+
+function findEnumModel(schema: SchemaObject, context: BuildContext): ModelDefinition | undefined {
+  if (!schema.enum?.length) return undefined;
+  const key = normalizeEnumValues(schema.enum);
+  for (const model of context.models) {
+    if (model.schema.enum?.length && normalizeEnumValues(model.schema.enum) === key) {
+      return model;
+    }
+  }
+  return undefined;
+}
+
 function schemaToType(schema: SchemaObject | undefined, context: BuildContext): string {
   if (!schema) return 'void';
   if (schema.$ref) return context.modelBySchema.get(refName(schema.$ref))?.typeName ?? 'unknown';
   if (schema.type === 'array') return `Array<${schemaToType(schema.items, context)}>`;
-  if (schema.enum?.length) return schema.enum.map((value) => JSON.stringify(String(value))).join(' | ');
+  if (schema.enum?.length) {
+    const enumModel = findEnumModel(schema, context);
+    if (enumModel) return enumModel.typeName;
+    return schema.enum.map((value) => JSON.stringify(String(value))).join(' | ');
+  }
   if (schema.type === 'object') return 'Record<string, unknown>';
   if (schema.type === 'integer' || schema.type === 'number') return 'number';
   if (schema.type === 'boolean') return 'boolean';
