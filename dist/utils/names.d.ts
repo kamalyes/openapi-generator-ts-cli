@@ -1,0 +1,10 @@
+export declare function toKebabCase(input: string): string;
+export declare function toPascalCase(input: string): string;
+export declare function toCamelCase(input: string): string;
+export declare function quoteProperty(name: string): string;
+export declare function normalizeKey(input: string): string;
+export declare function refName(ref: string): string;
+export declare function posixRelativeImport(fromDir: string, toFileNoExt: string): string;
+export declare function pathPartsToDir(parts: string[]): string;
+export declare function safeFileBase(input: string): string;
+export declare function uniqueSorted(values: Iterable<string>): string[];
